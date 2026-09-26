@@ -7,3 +7,6 @@ export * from "./investment";
 export * from "./syndicate";
 export * from "./reputation";
 export * from "./market";
+export * from "./academy-types";
+export * from "./academy-config";
+export * from "./academy";

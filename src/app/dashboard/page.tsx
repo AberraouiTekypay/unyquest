@@ -29,6 +29,12 @@ import {
 } from "@/engine/types";
 import { GAME_CONFIG } from "@/engine/config";
 import { NPC_INVESTORS } from "@/engine/archetypes";
+import { UnyCoachBanner } from "@/components/UnyCoachBanner";
+import { WhyModal } from "@/components/WhyModal";
+import { VentureLibraryModal } from "@/components/VentureLibraryModal";
+import { VentureJourneyHUD } from "@/components/VentureJourneyHUD";
+import { QuestsTab } from "@/components/QuestsTab";
+import { MiniChallengeModal } from "@/components/MiniChallengeModal";
 
 export default function DashboardPage() {
   const {
@@ -43,6 +49,9 @@ export default function DashboardPage() {
     juryReviews,
     transactions,
     marketCondition,
+    unlockTier,
+    triggerWhy,
+    openLibrary,
     setActiveCompanyId,
     switchPlayer,
     createNewCompany,
@@ -65,7 +74,7 @@ export default function DashboardPage() {
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<
-    "founder" | "pitch" | "friends" | "investor" | "syndicates" | "jury" | "leaderboard" | "admin"
+    "founder" | "pitch" | "friends" | "investor" | "syndicates" | "jury" | "leaderboard" | "quests" | "admin"
   >("founder");
 
   // Local UI state
@@ -293,6 +302,17 @@ export default function DashboardPage() {
               </span>
             </div>
 
+            {/* Persistent LEARN Button for Venture Academy */}
+            <button
+              type="button"
+              onClick={() => openLibrary()}
+              title="Open Venture Academy Knowledge Base"
+              className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/50 text-xs font-bold flex items-center space-x-1.5 transition shadow-sm"
+            >
+              <span>📚</span>
+              <span>LEARN</span>
+            </button>
+
             {/* Advance Market Cycle */}
             <button
               type="button"
@@ -352,58 +372,95 @@ export default function DashboardPage() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveTab("quests")}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center space-x-1 ${
+                activeTab === "quests"
+                  ? "bg-amber-500 text-neutral-950 font-bold"
+                  : "text-neutral-400 hover:text-white hover:bg-neutral-800"
+              }`}
+            >
+              <span>🎯</span>
+              <span>Quests & Skills</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveTab("pitch")}
-              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center space-x-1 ${
                 activeTab === "pitch"
                   ? "bg-emerald-500 text-neutral-950 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-neutral-800"
               }`}
             >
-              🎤 Pitch Arena
+              <span>🎤 Pitch Arena</span>
+              {unlockTier < 2 && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-neutral-800 text-amber-400 border border-amber-500/30">
+                  T2
+                </span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("friends")}
-              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center space-x-1 ${
                 activeTab === "friends"
                   ? "bg-emerald-500 text-neutral-950 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-neutral-800"
               }`}
             >
-              🚀 Raise from Friends
+              <span>🚀 Raise from Friends</span>
+              {unlockTier < 3 && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-neutral-800 text-amber-400 border border-amber-500/30">
+                  T3
+                </span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("investor")}
-              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center space-x-1 ${
                 activeTab === "investor"
                   ? "bg-emerald-500 text-neutral-950 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-neutral-800"
               }`}
             >
-              💼 Investor Portfolio
+              <span>💼 Investor Portfolio</span>
+              {unlockTier < 4 && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-neutral-800 text-amber-400 border border-amber-500/30">
+                  T4
+                </span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("syndicates")}
-              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center space-x-1 ${
                 activeTab === "syndicates"
                   ? "bg-emerald-500 text-neutral-950 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-neutral-800"
               }`}
             >
-              🤝 Syndicates
+              <span>🤝 Syndicates</span>
+              {unlockTier < 5 && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-neutral-800 text-amber-400 border border-amber-500/30">
+                  T5
+                </span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("jury")}
-              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center space-x-1 ${
                 activeTab === "jury"
                   ? "bg-emerald-500 text-neutral-950 font-bold"
                   : "text-neutral-400 hover:text-white hover:bg-neutral-800"
               }`}
             >
-              ⚖️ Jury Room
+              <span>⚖️ Jury Room</span>
+              {unlockTier < 4 && (
+                <span className="text-[9px] px-1 py-0.2 rounded bg-neutral-800 text-amber-400 border border-amber-500/30">
+                  T4
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -451,6 +508,14 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 py-8 flex-1 w-full">
+        {/* Venture Journey Progression HUD */}
+        <VentureJourneyHUD onOpenQuests={() => setActiveTab("quests")} />
+
+        {/* ========================================================================= */}
+        {/* TAB: QUESTS & VENTURE SKILL TREE                                          */}
+        {/* ========================================================================= */}
+        {activeTab === "quests" && <QuestsTab />}
+
         {/* ========================================================================= */}
         {/* TAB 1: FOUNDER HQ                                                         */}
         {/* ========================================================================= */}
@@ -540,9 +605,18 @@ export default function DashboardPage() {
                   {/* RUNWAY GAUGE (Prominently displayed) */}
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-neutral-950/80 p-4 rounded-xl border border-neutral-800">
                     <div>
-                      <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-400 block mb-0.5">
-                        RUNWAY HEALTH
-                      </span>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+                          RUNWAY HEALTH
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => triggerWhy("runway")}
+                          className="text-[10px] text-amber-400 font-bold hover:underline"
+                        >
+                          WHY?
+                        </button>
+                      </div>
                       <div className="flex items-baseline space-x-2">
                         <span
                           className={`text-3xl font-black font-mono tracking-tight ${
@@ -556,9 +630,18 @@ export default function DashboardPage() {
                           RUNWAY: {activeCompany.metrics.runway} MO
                         </span>
                       </div>
-                      <span className="text-[10px] text-neutral-500 block">
-                        Monthly Burn: ${activeCompany.metrics.monthly_burn.toLocaleString()}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-neutral-500">
+                          Monthly Burn: ${activeCompany.metrics.monthly_burn.toLocaleString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => triggerWhy("burn_rate")}
+                          className="text-[9px] text-amber-400 hover:underline"
+                        >
+                          (Why?)
+                        </button>
+                      </div>
                     </div>
 
                     <button
@@ -583,7 +666,16 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="p-4 rounded-xl bg-neutral-900/40 border border-neutral-800">
-                    <span className="text-[11px] text-neutral-400 block">Monthly Revenue</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-neutral-400 block">Monthly Revenue</span>
+                      <button
+                        type="button"
+                        onClick={() => triggerWhy("cac_ltv")}
+                        className="text-[9px] text-amber-400 hover:underline"
+                      >
+                        WHY?
+                      </button>
+                    </div>
                     <span className="text-xl font-bold font-mono text-emerald-400">
                       ${activeCompany.metrics.revenue.toLocaleString()}
                     </span>
@@ -601,7 +693,16 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="p-4 rounded-xl bg-neutral-900/40 border border-neutral-800">
-                    <span className="text-[11px] text-neutral-400 block">Valuation</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-neutral-400 block">Valuation</span>
+                      <button
+                        type="button"
+                        onClick={() => triggerWhy("valuation")}
+                        className="text-[9px] text-amber-400 hover:underline"
+                      >
+                        WHY?
+                      </button>
+                    </div>
                     <span className="text-xl font-bold font-mono text-white">
                       ${(activeCompany.metrics.valuation / 1_000_000).toFixed(2)}M
                     </span>
@@ -609,7 +710,16 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="p-4 rounded-xl bg-neutral-900/40 border border-neutral-800">
-                    <span className="text-[11px] text-neutral-400 block">Founder Equity</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-neutral-400 block">Founder Equity</span>
+                      <button
+                        type="button"
+                        onClick={() => triggerWhy("dilution")}
+                        className="text-[9px] text-amber-400 hover:underline"
+                      >
+                        WHY?
+                      </button>
+                    </div>
                     <span className="text-xl font-bold font-mono text-white">
                       {activeCompany.metrics.founder_ownership}%
                     </span>
@@ -2043,6 +2153,12 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Venture Academy Modals & UNY Coach Banner */}
+      <UnyCoachBanner />
+      <WhyModal />
+      <VentureLibraryModal />
+      <MiniChallengeModal />
 
       {/* Footer */}
       <footer className="py-8 bg-neutral-950 border-t border-neutral-900 text-xs text-neutral-500 mt-auto">

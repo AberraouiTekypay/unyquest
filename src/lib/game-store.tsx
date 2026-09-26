@@ -40,6 +40,34 @@ import {
 } from "@/engine/reputation";
 import { cycleMarketCondition } from "@/engine/market";
 import { SEED_STARTUP_ARCHETYPES } from "@/engine/archetypes";
+import {
+  Achievement,
+  LibraryConcept,
+  MiniChallenge,
+  PlayerMistakeTracker,
+  PlayerRoleProgression,
+  PlayerSkill,
+  Quest,
+  UnlockTier,
+  UnyCoachPrompt,
+} from "@/engine/academy-types";
+import {
+  INITIAL_ACHIEVEMENTS,
+  INITIAL_QUESTS,
+  MINI_CHALLENGES,
+  UNY_COACH_PROMPTS,
+  VENTURE_LIBRARY,
+  getInitialSkills,
+} from "@/engine/academy-config";
+import {
+  awardRoleXP,
+  awardSkillXP,
+  evaluateUnyCoachPrompt,
+  getUnlockTier,
+  recordPlayerMistake,
+  unlockAchievement,
+  updateQuestProgress,
+} from "@/engine/academy";
 
 interface GameContextType {
   player: Player;
@@ -53,6 +81,18 @@ interface GameContextType {
   juryReviews: JuryReview[];
   transactions: TransactionLedgerEntry[];
   marketCondition: MarketConditionState;
+  // Learning & Progression State
+  skills: PlayerSkill[];
+  roleProgression: PlayerRoleProgression;
+  unlockTier: UnlockTier;
+  quests: Quest[];
+  achievements: Achievement[];
+  mistakes: PlayerMistakeTracker;
+  activeCoachPrompt: UnyCoachPrompt | null;
+  activeWhyKey: string | null;
+  showLibrary: boolean;
+  showMiniChallenge: boolean;
+  activeChallenge: MiniChallenge | null;
   // Methods
   setActiveCompanyId: (id: string) => void;
   switchPlayer: (playerId: string) => void;
@@ -79,6 +119,15 @@ interface GameContextType {
   advanceMarketCycleState: () => void;
   claimReferralInvite: (referralPlayerId: string, newUsername: string) => Player;
   resetGameToDefault: () => void;
+  // Learning & Progression Dispatchers
+  dismissCoachPrompt: () => void;
+  triggerWhy: (conceptKey: string) => void;
+  closeWhy: () => void;
+  openLibrary: (conceptKey?: string) => void;
+  closeLibrary: () => void;
+  openMiniChallenge: (challengeId?: string) => void;
+  closeMiniChallenge: () => void;
+  completeMiniChallenge: (challengeId: string, optionId: string) => { consequence: string; xpGained: number };
 }
 
 const STORAGE_KEY = "VENTURE_GAME_STATE_V1";
@@ -192,6 +241,31 @@ function getInitialSeedState() {
       },
     ] as TransactionLedgerEntry[],
     marketCondition: "NORMAL" as MarketConditionState,
+    skills: getInitialSkills(),
+    roleProgression: {
+      founder_xp: 0,
+      founder_level: 1,
+      investor_xp: 0,
+      investor_level: 1,
+      jury_xp: 0,
+      jury_level: 1,
+      syndicate_xp: 0,
+      syndicate_level: 1,
+    } as PlayerRoleProgression,
+    unlockTier: 1 as UnlockTier,
+    quests: INITIAL_QUESTS,
+    achievements: INITIAL_ACHIEVEMENTS,
+    mistakes: {
+      distressCount: 0,
+      burnExcessCount: 0,
+      overvaluationPitchCount: 0,
+      failedPitchesCount: 0,
+    } as PlayerMistakeTracker,
+    activeCoachPrompt: UNY_COACH_PROMPTS["FIRST_COMPANY_CREATED"] as UnyCoachPrompt | null,
+    activeWhyKey: null as string | null,
+    showLibrary: false,
+    showMiniChallenge: false,
+    activeChallenge: null as MiniChallenge | null,
   };
 }
 
@@ -207,9 +281,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
+        const defaults = getInitialSeedState();
         setState((prev) => ({
           ...prev,
           ...parsed,
+          skills: parsed.skills?.length ? parsed.skills : defaults.skills,
+          roleProgression: parsed.roleProgression || defaults.roleProgression,
+          unlockTier: parsed.unlockTier || defaults.unlockTier,
+          quests: parsed.quests?.length ? parsed.quests : defaults.quests,
+          achievements: parsed.achievements?.length ? parsed.achievements : defaults.achievements,
+          mistakes: parsed.mistakes || defaults.mistakes,
+          activeCoachPrompt: parsed.activeCoachPrompt !== undefined ? parsed.activeCoachPrompt : defaults.activeCoachPrompt,
+          activeWhyKey: null,
+          showLibrary: false,
+          showMiniChallenge: false,
+          activeChallenge: null,
         }));
       }
     } catch {
@@ -290,6 +376,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
+    const updatedRoleProg = awardRoleXP(state.roleProgression, "FOUNDER", 150);
+    let updatedSkills = awardSkillXP(state.skills, "Problem Selection", 50);
+    updatedSkills = awardSkillXP(updatedSkills, "Customer Discovery", 50);
+    const { updatedQuests } = updateQuestProgress(state.quests, "quest-1", 1);
+    const nextTier = getUnlockTier(updatedRoleProg);
+    const coachPrompt = UNY_COACH_PROMPTS["FIRST_COMPANY_CREATED"];
+
     setState((prev) => ({
       ...prev,
       companies: [newCompany, ...prev.companies],
@@ -297,12 +390,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       player: {
         ...prev.player,
         active_company_id: newCompany.id,
+        founder_level: updatedRoleProg.founder_level,
       },
       capTables: {
         ...prev.capTables,
         [newCompany.id]: [initialCapTableEntry],
       },
       transactions: [newTx, ...prev.transactions],
+      roleProgression: updatedRoleProg,
+      skills: updatedSkills,
+      quests: updatedQuests,
+      unlockTier: nextTier,
+      activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
     }));
 
     return newCompany;
@@ -334,10 +433,53 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
+    // Progression & Skill leveling
+    let skillName = "Product";
+    if (actionType === "marketing") skillName = "Marketing";
+    else if (actionType === "hire") skillName = "Leadership";
+    else if (actionType === "sales") skillName = "Sales";
+    else if (actionType === "expand_market") skillName = "Strategy";
+    else if (actionType === "improve_operations") skillName = "Operations";
+
+    const updatedRoleProg = awardRoleXP(state.roleProgression, "FOUNDER", 30);
+    const updatedSkills = awardSkillXP(state.skills, skillName, 35);
+    const nextTier = getUnlockTier(updatedRoleProg);
+
+    let { updatedQuests } = updateQuestProgress(state.quests, "quest-2", updatedComp.metrics.users);
+
+    let updatedAchievements = state.achievements;
+    if (updatedComp.metrics.users > 0) {
+      updatedAchievements = unlockAchievement(updatedAchievements, "ach-first-customer").updatedAchievements;
+    }
+    if (updatedComp.metrics.revenue >= 5000) {
+      updatedAchievements = unlockAchievement(updatedAchievements, "ach-first-revenue").updatedAchievements;
+    }
+
+    let updatedMistakes = { ...state.mistakes };
+    let coachPrompt: UnyCoachPrompt | null = null;
+
+    if (updatedComp.metrics.is_distressed) {
+      updatedMistakes = recordPlayerMistake(updatedMistakes, "DISTRESS");
+      coachPrompt = evaluateUnyCoachPrompt("DISTRESS_MODE", updatedMistakes);
+    } else if (updatedComp.metrics.runway < 1.0) {
+      coachPrompt = evaluateUnyCoachPrompt("RUNWAY_CRITICAL", updatedMistakes);
+    } else if (updatedComp.metrics.runway < 3.0) {
+      coachPrompt = evaluateUnyCoachPrompt("RUNWAY_WARNING", updatedMistakes);
+    } else if (!state.transactions.some((t) => t.type === "COMPANY_ACTION_SPEND" && t.amount < 0)) {
+      coachPrompt = evaluateUnyCoachPrompt("FIRST_ACTION_SPENT", updatedMistakes);
+    }
+
     setState((prev) => ({
       ...prev,
       companies: prev.companies.map((c) => (c.id === companyId ? updatedComp : c)),
       transactions: [tx, ...prev.transactions],
+      roleProgression: updatedRoleProg,
+      skills: updatedSkills,
+      quests: updatedQuests,
+      achievements: updatedAchievements,
+      mistakes: updatedMistakes,
+      unlockTier: nextTier,
+      activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
     }));
 
     return { success: true, message: `Successfully executed action! Spent $${cost.toLocaleString()}.` };
@@ -380,6 +522,31 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
+    const updatedRoleProg = awardRoleXP(state.roleProgression, "FOUNDER", 35);
+    const updatedSkills = awardSkillXP(state.skills, "Fundraising", 35);
+    const nextTier = getUnlockTier(updatedRoleProg);
+    const { updatedQuests } = updateQuestProgress(state.quests, "quest-4", 1);
+    let updatedAchievements = unlockAchievement(state.achievements, "ach-first-pitch").updatedAchievements;
+
+    let updatedMistakes = { ...state.mistakes };
+    let coachPrompt: UnyCoachPrompt | null = null;
+
+    if (outcome.decision === "TERM_SHEET") {
+      coachPrompt = evaluateUnyCoachPrompt("FIRST_TERM_SHEET", updatedMistakes);
+    } else {
+      updatedAchievements = unlockAchievement(updatedAchievements, "ach-first-rejection").updatedAchievements;
+      if (
+        outcome.feedback_reason?.toLowerCase().includes("valuation") ||
+        config.valuation > config.company.metrics.valuation * 1.5
+      ) {
+        updatedMistakes = recordPlayerMistake(updatedMistakes, "OVERVALUATION");
+        coachPrompt = evaluateUnyCoachPrompt("VALUATION_OVERREACH", updatedMistakes);
+      } else {
+        updatedMistakes = recordPlayerMistake(updatedMistakes, "FAILED_PITCH");
+        coachPrompt = evaluateUnyCoachPrompt("FIRST_PITCH_PASS", updatedMistakes);
+      }
+    }
+
     setState((prev) => {
       const nextPending = outcome.term_sheet
         ? [outcome.term_sheet, ...prev.pendingTermSheets]
@@ -390,6 +557,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         companies: prev.companies.map((c) => (c.id === config.company.id ? updatedCompany : c)),
         pendingTermSheets: nextPending,
         transactions: [tx, ...prev.transactions],
+        roleProgression: updatedRoleProg,
+        skills: updatedSkills,
+        quests: updatedQuests,
+        achievements: updatedAchievements,
+        mistakes: updatedMistakes,
+        unlockTier: nextTier,
+        activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
       };
     });
 
@@ -431,6 +605,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
+    const updatedRoleProg = awardRoleXP(state.roleProgression, "FOUNDER", 150);
+    let updatedSkills = awardSkillXP(state.skills, "Fundraising", 50);
+    updatedSkills = awardSkillXP(updatedSkills, "Finance", 50);
+    const nextTier = getUnlockTier(updatedRoleProg);
+    const { updatedQuests } = updateQuestProgress(state.quests, "quest-5", 1);
+    const updatedAchievements = unlockAchievement(state.achievements, "ach-first-funding").updatedAchievements;
+
+    let coachPrompt: UnyCoachPrompt | null = null;
+    if (termSheet.ownership_percentage > 25) {
+      coachPrompt = evaluateUnyCoachPrompt("HIGH_DILUTION_WARNING", state.mistakes);
+    }
+
     setState((prev) => ({
       ...prev,
       companies: prev.companies.map((c) =>
@@ -445,8 +631,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       player: {
         ...prev.player,
         reputation: updatedReputation,
+        founder_level: updatedRoleProg.founder_level,
       },
       transactions: [tx, ...prev.transactions],
+      roleProgression: updatedRoleProg,
+      skills: updatedSkills,
+      quests: updatedQuests,
+      achievements: updatedAchievements,
+      unlockTier: nextTier,
+      activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
     }));
 
     return {
@@ -523,12 +716,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
+    const updatedRoleProg = awardRoleXP(state.roleProgression, "INVESTOR", 150);
+    let updatedSkills = awardSkillXP(state.skills, "Deal Sourcing", 40);
+    updatedSkills = awardSkillXP(updatedSkills, "Valuation", 40);
+    updatedSkills = awardSkillXP(updatedSkills, "Portfolio Construction", 40);
+    const nextTier = getUnlockTier(updatedRoleProg);
+    const { updatedQuests } = updateQuestProgress(state.quests, "quest-7", 1);
+    const updatedAchievements = unlockAchievement(state.achievements, "ach-first-investment").updatedAchievements;
+    const coachPrompt = evaluateUnyCoachPrompt("FIRST_INVESTMENT_MADE", state.mistakes);
+
     setState((prev) => ({
       ...prev,
       player: {
         ...prev.player,
         investor_capital: newInvestorCapital,
         reputation: updatedReputation,
+        investor_level: updatedRoleProg.investor_level,
       },
       companies: prev.companies.map((c) =>
         c.id === company.id ? execution.updated_company : c
@@ -539,6 +742,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       },
       investments: [execution.investment_record, ...prev.investments],
       transactions: [tx, ...prev.transactions],
+      roleProgression: updatedRoleProg,
+      skills: updatedSkills,
+      quests: updatedQuests,
+      achievements: updatedAchievements,
+      unlockTier: nextTier,
+      activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
     }));
 
     return {
@@ -587,15 +796,30 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         created_at: new Date().toISOString(),
       };
 
+      const updatedRoleProg = awardRoleXP(state.roleProgression, "SYNDICATE", 150);
+      let updatedSkills = awardSkillXP(state.skills, "Investment Strategy", 50);
+      updatedSkills = awardSkillXP(updatedSkills, "Leadership", 50);
+      const nextTier = getUnlockTier(updatedRoleProg);
+      const { updatedQuests } = updateQuestProgress(state.quests, "quest-8", 1);
+      const updatedAchievements = unlockAchievement(state.achievements, "ach-first-syndicate").updatedAchievements;
+      const coachPrompt = evaluateUnyCoachPrompt("FIRST_SYNDICATE_CREATED", state.mistakes);
+
       setState((prev) => ({
         ...prev,
         player: {
           ...prev.player,
           investor_capital: newInvestorCapital,
           reputation: updatedReputation,
+          syndicate_level: updatedRoleProg.syndicate_level,
         },
         syndicates: [newSyndicate, ...prev.syndicates],
         transactions: [tx, ...prev.transactions],
+        roleProgression: updatedRoleProg,
+        skills: updatedSkills,
+        quests: updatedQuests,
+        achievements: updatedAchievements,
+        unlockTier: nextTier,
+        activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
       }));
 
       return { success: true, message: `Syndicate "${newSyndicate.name}" established!` };
@@ -708,13 +932,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const newEvalCount = state.juryReviews.filter((r) => r.jury_id === state.player.id).length + 1;
     const updatedRep = updateJuryReputation(state.player.reputation, newEvalCount, 8);
 
+    const updatedRoleProg = awardRoleXP(state.roleProgression, "JURY", 80);
+    let updatedSkills = awardSkillXP(state.skills, "Pitch Evaluation", 40);
+    updatedSkills = awardSkillXP(updatedSkills, "Business Model Evaluation", 40);
+    const nextTier = getUnlockTier(updatedRoleProg);
+
     setState((prev) => ({
       ...prev,
       juryReviews: [review, ...prev.juryReviews],
       player: {
         ...prev.player,
         reputation: updatedRep,
+        jury_level: updatedRoleProg.jury_level,
       },
+      roleProgression: updatedRoleProg,
+      skills: updatedSkills,
+      unlockTier: nextTier,
     }));
   }
 
@@ -758,6 +991,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       created_at: new Date().toISOString(),
     };
 
+    const updatedRoleProg = awardRoleXP(
+      awardRoleXP(state.roleProgression, "FOUNDER", 300),
+      "INVESTOR",
+      200
+    );
+    let updatedSkills = awardSkillXP(state.skills, "Strategy", 80);
+    updatedSkills = awardSkillXP(updatedSkills, "Finance", 80);
+    const nextTier = getUnlockTier(updatedRoleProg);
+    const { updatedQuests } = updateQuestProgress(state.quests, "quest-9", 1);
+    const updatedAchievements = unlockAchievement(state.achievements, "ach-first-exit").updatedAchievements;
+    const coachPrompt = evaluateUnyCoachPrompt("FIRST_EXIT_ACHIEVED", state.mistakes);
+
     setState((prev) => ({
       ...prev,
       player: {
@@ -767,9 +1012,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           ...prev.player.reputation,
           founder_reputation: newFounderRep,
         },
+        founder_level: updatedRoleProg.founder_level,
+        investor_level: updatedRoleProg.investor_level,
       },
       companies: prev.companies.map((c) => (c.id === companyId ? updatedCompany : c)),
       transactions: [tx, ...prev.transactions],
+      roleProgression: updatedRoleProg,
+      skills: updatedSkills,
+      quests: updatedQuests,
+      achievements: updatedAchievements,
+      unlockTier: nextTier,
+      activeCoachPrompt: coachPrompt || prev.activeCoachPrompt,
     }));
 
     return exitDetails;
@@ -781,9 +1034,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     const updated = engineApplyTurnGrowth(company, state.marketCondition);
 
+    let updatedQuests = state.quests;
+    if (updated.metrics.runway >= 3.0) {
+      const qRes = updateQuestProgress(state.quests, "quest-3", 1);
+      updatedQuests = qRes.updatedQuests;
+    }
+
     setState((prev) => ({
       ...prev,
       companies: prev.companies.map((c) => (c.id === companyId ? updated : c)),
+      quests: updatedQuests,
     }));
   }
 
@@ -821,6 +1081,65 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setState(getInitialSeedState());
   }
 
+  // Learning & Progression Dispatchers
+  function dismissCoachPrompt() {
+    setState((prev) => ({ ...prev, activeCoachPrompt: null }));
+  }
+
+  function triggerWhy(conceptKey: string) {
+    setState((prev) => ({ ...prev, activeWhyKey: conceptKey }));
+  }
+
+  function closeWhy() {
+    setState((prev) => ({ ...prev, activeWhyKey: null }));
+  }
+
+  function openLibrary(conceptKey?: string) {
+    setState((prev) => ({
+      ...prev,
+      showLibrary: true,
+      activeWhyKey: conceptKey || prev.activeWhyKey || null,
+    }));
+  }
+
+  function closeLibrary() {
+    setState((prev) => ({ ...prev, showLibrary: false }));
+  }
+
+  function openMiniChallenge(challengeId?: string) {
+    const target = challengeId
+      ? MINI_CHALLENGES.find((c) => c.id === challengeId) || MINI_CHALLENGES[0]
+      : MINI_CHALLENGES[0];
+    setState((prev) => ({ ...prev, showMiniChallenge: true, activeChallenge: target }));
+  }
+
+  function closeMiniChallenge() {
+    setState((prev) => ({ ...prev, showMiniChallenge: false, activeChallenge: null }));
+  }
+
+  function completeMiniChallenge(challengeId: string, optionId: string) {
+    const challenge = MINI_CHALLENGES.find((c) => c.id === challengeId);
+    if (!challenge) return { consequence: "Challenge completed.", xpGained: 50 };
+    const option = challenge.options.find((o) => o.id === optionId) || challenge.options[0];
+
+    setState((prev) => {
+      let updatedProg = awardRoleXP(prev.roleProgression, option.skillCategory as any, option.xpGained);
+      let updatedSkills = awardSkillXP(prev.skills, option.skillName, option.xpGained);
+      const nextTier = getUnlockTier(updatedProg);
+
+      return {
+        ...prev,
+        roleProgression: updatedProg,
+        skills: updatedSkills,
+        unlockTier: nextTier,
+        showMiniChallenge: false,
+        activeChallenge: null,
+      };
+    });
+
+    return { consequence: option.consequence, xpGained: option.xpGained };
+  }
+
   return (
     <GameContext.Provider
       value={{
@@ -835,6 +1154,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         juryReviews: state.juryReviews,
         transactions: state.transactions,
         marketCondition: state.marketCondition,
+        skills: state.skills,
+        roleProgression: state.roleProgression,
+        unlockTier: state.unlockTier,
+        quests: state.quests,
+        achievements: state.achievements,
+        mistakes: state.mistakes,
+        activeCoachPrompt: state.activeCoachPrompt,
+        activeWhyKey: state.activeWhyKey,
+        showLibrary: state.showLibrary,
+        showMiniChallenge: state.showMiniChallenge,
+        activeChallenge: state.activeChallenge,
         setActiveCompanyId,
         switchPlayer,
         createNewCompany,
@@ -853,6 +1183,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         advanceMarketCycleState,
         claimReferralInvite,
         resetGameToDefault,
+        dismissCoachPrompt,
+        triggerWhy,
+        closeWhy,
+        openLibrary,
+        closeLibrary,
+        openMiniChallenge,
+        closeMiniChallenge,
+        completeMiniChallenge,
       }}
     >
       {children}
