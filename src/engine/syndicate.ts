@@ -17,6 +17,13 @@ export interface CreateSyndicateInput {
   min_investment?: number;
 }
 
+/**
+ * Forms a new investment syndicate with mandatory 10% leader skin-in-the-game commitment.
+ *
+ * @param input - Syndicate configuration (name, thesis, leader details, target amount, leader commitment)
+ * @throws Error if leader commitment is less than 10% of target raise
+ * @returns Initialized Syndicate object
+ */
 export function createSyndicate(input: CreateSyndicateInput): Syndicate {
   const minRequiredLeaderCommitment =
     input.target_amount * GAME_CONFIG.MIN_SYNDICATE_LEADER_PERCENTAGE;
@@ -55,6 +62,16 @@ export function createSyndicate(input: CreateSyndicateInput): Syndicate {
   };
 }
 
+/**
+ * Pledges investor capital to an open syndicate, calculating pro-rata ownership
+ * shares across all members relative to total pooled commitments.
+ *
+ * @param syndicate - Active syndicate instance
+ * @param memberId - Joining investor identifier
+ * @param memberName - Joining investor display name
+ * @param amount - Capital pledged
+ * @returns Updated syndicate state with rebalanced pro-rata ownership percentages
+ */
 export function joinSyndicate(
   syndicate: Syndicate,
   memberId: string,
@@ -118,6 +135,16 @@ export function joinSyndicate(
   };
 }
 
+/**
+ * Deploys pooled syndicate capital into a target company's funding round,
+ * placing the syndicate entity on the company's cap table.
+ *
+ * @param syndicate - Syndicate deploying capital
+ * @param company - Target startup receiving investment
+ * @param preMoneyValuation - Agreed pre-money valuation
+ * @param existingCapTable - Company's current cap table
+ * @returns Updated syndicate state and funding execution result
+ */
 export function deploySyndicateInvestment(
   syndicate: Syndicate,
   company: Company,

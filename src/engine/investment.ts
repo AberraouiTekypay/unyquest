@@ -34,6 +34,15 @@ export const STAGE_PROGRESSION: Record<CompanyStage, CompanyStage> = {
   Exit: "Exit",
 };
 
+/**
+ * Executes a formal venture funding round.
+ * Calculates post-money valuation, investor equity share, and proportional
+ * dilution across all existing cap table holders. Normalizes cap table sum to 100%,
+ * updates company treasury cash, and checks stage promotion thresholds.
+ *
+ * @param params - Execution parameters (company, investor details, amount, pre-money, cap table)
+ * @returns InvestmentExecutionResult containing updated company, cap table, dilution %, and investment record
+ */
 export function executeFundingRound(
   params: InvestmentExecutionParams
 ): InvestmentExecutionResult {
@@ -196,6 +205,14 @@ export function executeFundingRound(
   };
 }
 
+/**
+ * Aggregates portfolio performance metrics across all active and exited investments.
+ * Calculates total deployed capital, current unrealized valuation, aggregate virtual MOIC,
+ * and tracks breakout winners vs written-off positions.
+ *
+ * @param investments - Array of investment positions
+ * @returns Object containing totalInvested, totalCurrentValue, virtualMOIC, winners, and failures
+ */
 export function calculatePortfolioStats(investments: Investment[]) {
   const totalInvested = investments.reduce((acc, inv) => acc + inv.amount_invested, 0);
   const totalCurrentValue = investments.reduce(

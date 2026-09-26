@@ -9,10 +9,24 @@ import {
 import { GAME_CONFIG } from "./config";
 import { NPC_INVESTORS } from "./archetypes";
 
+/**
+ * Retrieves the required virtual capital fee to deliver a pitch deck at the current company stage.
+ *
+ * @param stage - Company development stage (Pre-seed: $5k, Seed: $10k, Series A: $25k, Series B: $50k)
+ * @returns Virtual currency fee deducted from company treasury
+ */
 export function getPitchCost(stage: Company["metrics"]["stage"]): number {
   return GAME_CONFIG.PITCH_FEES[stage] ?? 5_000;
 }
 
+/**
+ * Evaluates a founder's pitch against an institutional venture capital archetype
+ * (GENERALIST, SPECIALIST, or OPERATOR) using weighted matrices, valuation overreach
+ * penalties, and use-of-funds balance checks.
+ *
+ * @param config - Pitch configuration (company, ask, valuation, archetype, use_of_funds)
+ * @returns PitchOutcome with decision (PASS, INTERESTED, TERM_SHEET), feedback reason, and optional term sheet
+ */
 export function evaluatePitch(config: PitchConfig): PitchOutcome {
   const { company, ask, valuation, target_archetype, use_of_funds } = config;
   const stage = company.metrics.stage;
@@ -129,6 +143,15 @@ export function evaluatePitch(config: PitchConfig): PitchOutcome {
   };
 }
 
+/**
+ * Simulates negotiation on an issued term sheet. The investor accepts the counter-offer
+ * if the pre-money and equity deltas fall within an acceptable 15% tolerance margin.
+ *
+ * @param originalTermSheet - The original term sheet issued by the investor
+ * @param counterPreMoney - Founder's proposed pre-money valuation
+ * @param counterEquityPct - Founder's proposed equity percentage
+ * @returns Object indicating acceptance status, final term sheet if accepted, and response message
+ */
 export function negotiateCounterOffer(
   originalTermSheet: TermSheet,
   counterPreMoney: number,

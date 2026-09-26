@@ -27,12 +27,29 @@ export interface CreateCompanyInput {
   initial_treasury?: number;
 }
 
+/**
+ * Calculates company runway in months based on liquid cash treasury and monthly burn rate.
+ *
+ * @param cash - Current liquid virtual treasury cash in company account
+ * @param monthly_burn - Net monthly operating expense burn rate
+ * @returns Runway in months, rounded to 1 decimal place (returns 99.9 if burn <= 0, 0 if cash <= 0)
+ */
 export function calculateRunway(cash: number, monthly_burn: number): number {
   if (monthly_burn <= 0) return 99.9;
   if (cash <= 0) return 0;
   return Math.round((cash / monthly_burn) * 10) / 10;
 }
 
+/**
+ * Computes company intrinsic valuation based on annualized recurring revenue (ARR),
+ * sector ARR multiples, growth momentum premium, composite asset/team quality,
+ * and current global macroeconomic cycle conditions.
+ *
+ * @param metrics - Current company operational metrics (revenue, growth, scores, TAM)
+ * @param sector - Target vertical sector (AI, Fintech, Logistics, Healthcare, Climate, etc.)
+ * @param marketCondition - Macro state (BOOM, NORMAL, TIGHT, CRISIS)
+ * @returns Calculated post/pre-money virtual valuation rounded to the nearest $10,000
+ */
 export function calculateValuation(
   metrics: Omit<CompanyMetrics, "valuation">,
   sector: Sector,
@@ -84,6 +101,13 @@ export function calculateValuation(
   return Math.round((rawValuation * marketMult) / 10_000) * 10_000;
 }
 
+/**
+ * Initializes a new startup company with calibrated sector metrics,
+ * founder strength attribute modifiers, initial treasury, and baseline valuation.
+ *
+ * @param input - Company parameters (name, tagline, sector, market, model, strengths)
+ * @returns Fully formed Company object with initial metrics and 100% founder ownership
+ */
 export function createCompany(input: CreateCompanyInput): Company {
   const initialCash = input.initial_treasury ?? GAME_CONFIG.STARTER_FOUNDER_CAPITAL;
   const initialBurn = 10_000;
@@ -188,6 +212,15 @@ export function createCompany(input: CreateCompanyInput): Company {
   };
 }
 
+/**
+ * Spends virtual treasury cash on operational actions with real trade-offs.
+ * Updates company scores, recalculates runway, and triggers distress if cash <= 0.
+ *
+ * @param company - Target company state
+ * @param actionType - Operating action (build_product, marketing, hire, sales, expand_market, improve_operations)
+ * @param marketCondition - Current macroeconomic state
+ * @returns Updated company object, cost deducted, and optional error message
+ */
 export function spendCash(
   company: Company,
   actionType: CompanyActionType,
@@ -275,6 +308,15 @@ export function spendCash(
   };
 }
 
+/**
+ * Advances company operational state forward by one month (or simulation turn).
+ * Applies organic growth curve, burns monthly expenses, updates user counts,
+ * recalculates runway, and adjusts valuation dynamically.
+ *
+ * @param company - Target company state
+ * @param marketCondition - Current macroeconomic state
+ * @returns Mutated company state after one turn of operations
+ */
 export function applyTurnGrowth(
   company: Company,
   marketCondition: MarketConditionState = "NORMAL"
@@ -309,6 +351,16 @@ export function applyTurnGrowth(
   };
 }
 
+/**
+ * Calculates final liquidity proceeds for founder and investors upon exit.
+ * Computes strategic acquisition premium multiples, public IPO multiples,
+ * or liquidation recoveries based on cap table ownership percentages.
+ *
+ * @param company - Exiting company state
+ * @param capTable - Current capitalization table entries
+ * @param exitType - ACQUISITION, IPO, FOUNDER_BUYOUT, or FAILURE
+ * @returns ExitDetails with exit valuation, founder proceeds, and investor payouts with virtual MOIC
+ */
 export function calculateExit(
   company: Company,
   capTable: CapTableEntry[],
